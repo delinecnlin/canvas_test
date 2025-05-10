@@ -88,6 +88,13 @@ app.post('/generate/ppt', async (req, res) => {
   res.json(result);
 });
 
+/**
+ * 健康检查路由，GET /
+ */
+app.get('/', (req, res) => {
+  res.send('Backend is running');
+});
+
 // 端口监听
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
