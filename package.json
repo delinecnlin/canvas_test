@@ -1,0 +1,6 @@
+{
+  "name": "canvas_test_root",
+  "version": "1.0.0",
+  "description": "仅用于兼容 Azure Web App 自动部署流程，实际后端代码在 backend/server 目录。",
+  "private": true
+}
