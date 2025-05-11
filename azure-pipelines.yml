@@ -1,0 +1,46 @@
+# Azure DevOps CI/CD for 前后端分离 Node.js 项目
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  node_version: '18.x'
+
+steps:
+- task: NodeTool@0
+  inputs:
+    versionSpec: '$(node_version)'
+  displayName: '使用 Node.js $(node_version)'
+
+# 前端构建
+- script: |
+    cd frontend
+    npm install
+    if [ -f package.json ] && grep -q '"build"' package.json; then
+      npm run build
+    fi
+  displayName: '安装并构建前端'
+
+# 后端依赖安装
+- script: |
+    cd backend/server
+    npm install
+  displayName: '安装后端依赖'
+
+# 可选：运行测试
+# - script: |
+#     cd frontend && npm test
+#   displayName: '前端测试'
+# - script: |
+#     cd backend/server && npm test
+#   displayName: '后端测试'
+
+# 可选：部署到 Azure Web App（需配置 Service Connection）
+# - task: AzureWebApp@1
+#   inputs:
+#     azureSubscription: '<你的Service Connection名称>'
+#     appName: '<你的Web App名称>'
+#     package: '$(System.DefaultWorkingDirectory)/backend/server'
+#   displayName: '部署到 Azure Web App'
