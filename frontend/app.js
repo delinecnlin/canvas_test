@@ -49,7 +49,8 @@ function showAuthForm() {
     e.preventDefault();
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
-    const res = await fetch('https://canvastest-f8dub2hzg4avgca2.japanwest-01.azurewebsites.net/auth/login', {
+    const backendUrl = window.BACKEND_URL || 'http://localhost:3001';
+    const res = await fetch(`${backendUrl}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -68,7 +69,8 @@ function showAuthForm() {
     e.preventDefault();
     const username = document.getElementById('register-username').value.trim();
     const password = document.getElementById('register-password').value;
-    const res = await fetch('https://canvastest-f8dub2hzg4avgca2.japanwest-01.azurewebsites.net/auth/register', {
+    const backendUrl = window.BACKEND_URL || 'http://localhost:3001';
+    const res = await fetch(`${backendUrl}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -104,6 +106,7 @@ function logout() {
 function showMainApp(avatarId, avatarObj) {
   // 还原 index.html 主结构，增加素材上传和URL粘贴功能
   document.body.innerHTML = `
+  <button id="back-to-home-btn" style="position:fixed;top:10px;left:20px;z-index:999;background:#2563eb;color:#fff;border:none;border-radius:5px;padding:6px 14px;cursor:pointer;">返回主页</button>
   <div class="main-layout">
     <aside class="sidebar left">
       <h2>场景</h2>
@@ -149,11 +152,17 @@ function showMainApp(avatarId, avatarObj) {
             <div style="margin-top:8px;">
               <label>手势：</label>
               <select id="gesture-select">
-                ${(avatarObj.gestures || []).map(g => `<option value="${g}">${g}</option>`).join('')}
+                ${(avatarObj.gestures && avatarObj.gestures.length)
+                  ? avatarObj.gestures.map(g => `<option value="${g}">${g}</option>`).join('')
+                  : '<option disabled>无可用手势</option>'}
               </select>
             </div>
           </div>
         ` : '<div>未选择数字人</div>'}
+      </div>
+      <div id="voice-panel" style="margin-top:24px;">
+        <h3>可选声音</h3>
+        <ul id="voice-list"></ul>
       </div>
       <div id="property-panel">
         <h3>属性</h3>
@@ -198,9 +207,13 @@ function showMainApp(avatarId, avatarObj) {
   `;
 
   document.getElementById('logout-btn').onclick = logout;
+  document.getElementById('back-to-home-btn').onclick = showHomePage;
 
   // 初始化fabric.js画布
   canvas = new window.fabric.Canvas('editor-canvas');
+
+  // 加载声音列表
+  fetchVoices();
 
   // 上传图片
   document.getElementById('upload-image-btn').onclick = () => {
@@ -221,6 +234,29 @@ function showMainApp(avatarId, avatarObj) {
       canvas.setActiveObject(textbox);
       canvas.requestRenderAll();
     }
+
+// 加载声音列表并渲染
+async function fetchVoices() {
+  try {
+    const backendUrl = window.BACKEND_URL || 'http://localhost:3001';
+    const res = await fetch(`${backendUrl}/api/xiaoice/voices`);
+    if (res.ok) {
+      const voices = await res.json();
+      const list = document.getElementById('voice-list');
+      if (list) {
+        list.innerHTML = voices.map(v =>
+          `<li>
+            <strong>${v.name}</strong>
+            <span style="color:#888;font-size:12px;">（${v.language}）</span>
+            ${v.auditionFile ? `<audio src="${v.auditionFile}" controls style="vertical-align:middle;width:120px;"></audio>` : ''}
+          </li>`
+        ).join('');
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
   };
   document.getElementById('hidden-image-input').onchange = (e) => {
     const file = e.target.files[0];
@@ -379,7 +415,12 @@ async function showHomePage() {
   // 获取所有小冰数字人
   let avatars = [];
   try {
-    const res = await fetch('/api/xiaoice/avatars');
+    // 支持本地和生产环境切换
+    const backendUrl = window.BACKEND_URL || 'http://localhost:3001';
+    const res = await fetch(`${backendUrl}/api/xiaoice/avatars`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
     if (res.ok) {
       avatars = await res.json();
     }
@@ -400,7 +441,7 @@ async function showHomePage() {
       <div id="avatar-list" style="display:flex;flex-wrap:wrap;gap:24px;">
         ${avatars.map(a => `
           <div class="avatar-card" data-id="${a.id}" style="border:1px solid #eee;border-radius:8px;padding:12px;cursor:pointer;width:160px;text-align:center;">
-            <img src="${a.thumbnail}" alt="${a.name}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;">
+            <img src="${a.thumbnail || a.summaryImage || ''}" alt="${a.name}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;">
             <div style="margin-top:8px;font-weight:bold;">${a.name}</div>
             <div style="font-size:13px;color:#888;">${a.description || ''}</div>
           </div>

@@ -16,6 +16,7 @@ const localAuthRouter = require('./local-auth');
 
 const DIFY_API_BASE = 'https://rag02.de-line.net/v1';
 // 小冰API Key仅在后端设置，前端不再传递
+console.log('XIAOBING_API_KEY from env:', process.env.XIAOBING_API_KEY);
 const XIAOBING_API_KEY = process.env.XIAOBING_API_KEY; // 请在Azure环境变量中设置
 
 app.use(cors());
@@ -33,7 +34,7 @@ async function callXiaoiceApi(apiPath, data) {
     const response = await axios.post(
       `https://aibeings-vip.xiaoice.com${apiPath}`,
       data,
-      { headers: { 'Ocp-Apim-Subscription-Key': XIAOBING_API_KEY, 'Content-Type': 'application/json' } }
+      { headers: { 'subscription-key': XIAOBING_API_KEY ? XIAOBING_API_KEY.trim() : '', 'Content-Type': 'application/json' } }
     );
     return response.data;
   } catch (error) {
@@ -110,25 +111,89 @@ app.post('/generate/ppt', async (req, res) => {
  * 文档: https://aibeings-vip.xiaoice.com/developer-doc/show/114
  * 返回格式: [{ id, name, description, thumbnail, gestures: [] }]
  */
-app.get('/api/xiaoice/avatars', async (req, res) => {
+app.post('/api/xiaoice/avatars', async (req, res) => {
   try {
-    // 假设API为 /api/avatar/list，实际以小冰文档为准
-    const result = await callXiaoiceApi('/api/avatar/list', {});
-    if (result && Array.isArray(result.data)) {
-      // 只保留必要字段
-      const avatars = result.data.map(a => ({
-        id: a.avatarId || a.id,
-        name: a.name,
-        description: a.description,
-        thumbnail: a.thumbnail,
-        gestures: a.gestures || []
-      }));
-      res.json(avatars);
-    } else {
-      res.status(500).json({ error: '小冰API返回异常' });
-    }
+    // 1. 获取数字人列表
+    const result = await axios.post(
+      'https://openapi.xiaoice.com/vh/openapi/video/queryDigitalEmployee',
+      {
+        categoryList: [],
+        modelType: 'STUDIO',
+        pageIndex: 1,
+        pageSize: 20
+      },
+      {
+        headers: {
+          'subscription-key': XIAOBING_API_KEY ? XIAOBING_API_KEY.trim() : '',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    const data = result.data && result.data.data && Array.isArray(result.data.data.records)
+      ? result.data.data.records
+      : [];
+    // 2. 并发获取每个数字人详情，提取手势
+    const details = await Promise.all(
+      data.map(async a => {
+        try {
+          const detailRes = await axios.post(
+            'https://openapi.xiaoice.com/vh/openapi/video/detailDigitalEmployee',
+            { bizId: a.bizId },
+            {
+              headers: {
+                'subscription-key': XIAOBING_API_KEY ? XIAOBING_API_KEY.trim() : '',
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+          const gestures = (detailRes.data && detailRes.data.data && Array.isArray(detailRes.data.data.gestures))
+            ? detailRes.data.data.gestures
+            : [];
+          return { ...a, gestures };
+        } catch {
+          return { ...a, gestures: [] };
+        }
+      })
+    );
+    // 只保留必要字段
+    const avatars = details.map(a => ({
+      id: a.bizId,
+      name: a.name,
+      description: a.introduce,
+      thumbnail: a.summaryImage,
+      summaryVideo: a.summaryVideo,
+      projectVideo: a.projectVideo,
+      industry: a.industry,
+      language: a.language,
+      experience: a.experience,
+      category: a.category,
+      gestures: a.gestures
+    }));
+    res.json(avatars);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('小冰API调用异常:', e && e.response ? e.response.data : e);
+    res.status(500).json({ error: e.message, stack: e.stack, detail: e && e.response ? e.response.data : undefined });
+  }
+});
+
+/**
+ * 获取数字人声音列表
+ */
+app.get('/api/xiaoice/voices', async (req, res) => {
+  try {
+    const result = await axios.get(
+      'https://openapi.xiaoice.com/vh/openapi/customize/zero/voice-list',
+      {
+        headers: {
+          'subscription-key': XIAOBING_API_KEY ? XIAOBING_API_KEY.trim() : '',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    res.json(result.data && result.data.data ? result.data.data : []);
+  } catch (e) {
+    console.error('小冰声音API调用异常:', e && e.response ? e.response.data : e);
+    res.status(500).json({ error: e.message, stack: e.stack, detail: e && e.response ? e.response.data : undefined });
   }
 });
 
