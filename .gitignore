@@ -17,6 +17,14 @@ frontend/.env
 frontend/.env.local
 frontend/.env.*.local
 
+# React SPA（Vite/CRA/Next等）常见忽略
+frontend/react-spa/node_modules/
+frontend/react-spa/dist/
+frontend/react-spa/build/
+frontend/react-spa/.env
+frontend/react-spa/.env.local
+frontend/react-spa/.env.*.local
+
 # VSCode
 .vscode/
 

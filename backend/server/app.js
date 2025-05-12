@@ -15,8 +15,6 @@ const app = express();
 const localAuthRouter = require('./local-auth');
 
 const DIFY_API_BASE = 'https://rag02.de-line.net/v1';
-// 小冰API Key仅在后端设置，前端不再传递
-console.log('XIAOBING_API_KEY from env:', process.env.XIAOBING_API_KEY);
 const XIAOBING_API_KEY = process.env.XIAOBING_API_KEY; // 请在Azure环境变量中设置
 
 app.use(cors());
@@ -149,9 +147,12 @@ app.post('/api/xiaoice/avatars', async (req, res) => {
           const gestures = (detailRes.data && detailRes.data.data && Array.isArray(detailRes.data.data.gestures))
             ? detailRes.data.data.gestures
             : [];
-          return { ...a, gestures };
+          const postureInfos = (detailRes.data && detailRes.data.data && Array.isArray(detailRes.data.data.postureInfos))
+            ? detailRes.data.data.postureInfos
+            : [];
+          return { ...a, gestures, postureInfos };
         } catch {
-          return { ...a, gestures: [] };
+          return { ...a, gestures: [], postureInfos: [] };
         }
       })
     );
@@ -167,7 +168,8 @@ app.post('/api/xiaoice/avatars', async (req, res) => {
       language: a.language,
       experience: a.experience,
       category: a.category,
-      gestures: a.gestures
+      gestures: a.gestures,
+      postureInfos: a.postureInfos
     }));
     res.json(avatars);
   } catch (e) {
@@ -194,6 +196,19 @@ app.get('/api/xiaoice/voices', async (req, res) => {
   } catch (e) {
     console.error('小冰声音API调用异常:', e && e.response ? e.response.data : e);
     res.status(500).json({ error: e.message, stack: e.stack, detail: e && e.response ? e.response.data : undefined });
+  }
+});
+
+/**
+ * 生成最终视频（接收前端json，模拟返回）
+ */
+app.post('/api/generate', async (req, res) => {
+  try {
+    console.log('[API] /api/generate 收到请求:', req.body);
+    // 这里可集成实际视频生成逻辑
+    res.json({ success: true, message: '已收到生成请求', data: req.body });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
