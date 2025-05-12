@@ -41,25 +41,65 @@ const EditorPage: React.FC<{
   const fabricRef = React.useRef<any>();
   const [selected, setSelected] = React.useState<any>(null);
 
+  // 多场景管理
+  type Scene = {
+    id: string;
+    videoName: string;
+    voiceScript: string;
+    canvasRatio: "16:9" | "9:16";
+    canvasSize: { w: number; h: number };
+    elements: any; // fabric json
+  };
+  const [scenes, setScenes] = useState<Scene[]>([
+    {
+      id: genTaskId(),
+      videoName: avatar ? `${avatar.name || "视频"}-${taskId}` : `视频-${taskId}`,
+      voiceScript: "",
+      canvasRatio: "16:9",
+      canvasSize: { w: 1920, h: 1080 },
+      elements: null
+    }
+  ]);
+  const [currentSceneIdx, setCurrentSceneIdx] = useState(0);
+
+  // 画布分辨率、视频名、口播文本都由当前场景决定
+  const canvasRatio = scenes[currentSceneIdx].canvasRatio;
+  const canvasSize = scenes[currentSceneIdx].canvasSize;
+  const videoName = scenes[currentSceneIdx].videoName;
+  const voiceScript = scenes[currentSceneIdx].voiceScript;
+
+  // 画布缩放与居中
+  const [canvasZoom, setCanvasZoom] = useState(1);
+
+  // 居中当前元素
+  const centerActiveObject = () => {
+    if (!fabricRef.current) return;
+    const canvas = fabricRef.current;
+    const active = canvas.getActiveObject();
+    if (!active) return;
+    // 计算目标中心
+    const cx = canvas.getWidth() / 2;
+    const cy = canvas.getHeight() / 2;
+    active.set({
+      left: cx - (active.getScaledWidth() / 2),
+      top: cy - (active.getScaledHeight() / 2)
+    });
+    canvas.requestRenderAll();
+  };
+
   // 草稿恢复
   React.useEffect(() => {
     try {
       const drafts = JSON.parse(localStorage.getItem("drafts") || "[]");
       const draft = drafts.find((d: any) => d.taskId === taskId);
-      if (draft) {
-        // 恢复 avatar
-        if (draft.avatar) setAvatar(draft.avatar);
-        // 恢复 fabric 元素
-        setTimeout(() => {
-          if (fabricRef.current && draft.elements) {
-            fabricRef.current.loadFromJSON(draft.elements, () => {
-              fabricRef.current.requestRenderAll();
-            });
-          }
-        }, 300);
+      if (draft && draft.scenes) {
+        setAvatar(draft.avatar || avatar);
+        setScenes(draft.scenes);
+        setCurrentSceneIdx(draft.currentSceneIdx || 0);
       }
     } catch {}
-  }, [taskId]);
+    // eslint-disable-next-line
+  }, [taskId, avatar]);
 
   // 素材Tab
   const [materialTab, setMaterialTab] = useState("scene");
@@ -99,7 +139,7 @@ const EditorPage: React.FC<{
   // 插入图片到画布
   const handleInsertImage = () => {
     if (!fabricRef.current || !fabric.Image) {
-      console.log("[DEBUG] handleInsertImage: fabricRef.current or fabric.Image missing");
+      console.log("[DEBUG] handleInsertImage: fabricRef.current or fabric.Image missing", { fabricRef: fabricRef.current, fabricImage: fabric.Image });
       return;
     }
     let src = "";
@@ -108,14 +148,16 @@ const EditorPage: React.FC<{
     } else if (imageUrlInput) {
       src = imageUrlInput;
     } else {
+      console.log("[DEBUG] handleInsertImage: 没有图片文件或URL");
       return;
     }
+    console.log("[DEBUG] handleInsertImage: 开始插入图片", { src });
     fabric.Image.fromURL(src, (img: any) => {
       if (!img) {
         console.log("[DEBUG] handleInsertImage: 图片加载失败", src);
         return;
       }
-      img.set({ left: 100, top: 300, scaleX: 0.5, scaleY: 0.5 });
+      img.set({ left: 100, top: 100, scaleX: 0.5, scaleY: 0.5 });
       fabricRef.current!.add(img);
       fabricRef.current!.setActiveObject(img);
       fabricRef.current!.requestRenderAll();
@@ -123,6 +165,13 @@ const EditorPage: React.FC<{
       setImageFile(null);
       setImageUrlInput("");
       setImagePreview("");
+      // 详细调试信息
+      setTimeout(() => {
+        console.log("[DEBUG] handleInsertImage: 画布对象列表", fabricRef.current.getObjects());
+        if (img._element) {
+          console.log("[DEBUG] handleInsertImage: img._element", img._element, "img.src", img._element.src);
+        }
+      }, 100);
     });
   };
 
@@ -132,35 +181,46 @@ const EditorPage: React.FC<{
       return;
     }
     if (!fabricRef.current && fabric && fabric.Canvas) {
-      console.log("[DEBUG] fabric.Canvas init");
       const canvas = new fabric.Canvas(canvasRef.current, {
-        width: 540,
-        height: 960,
+        width: canvasSize.w,
+        height: canvasSize.h,
         backgroundColor: "#fff",
         preserveObjectStacking: true,
       });
       fabricRef.current = canvas;
       canvas.on("selection:created", (e: any) => {
-        console.log("[DEBUG] selection:created", e);
         setSelected(e.selected ? e.selected[0] : e.target);
       });
       canvas.on("selection:updated", (e: any) => {
-        console.log("[DEBUG] selection:updated", e);
         setSelected(e.selected ? e.selected[0] : e.target);
       });
       canvas.on("selection:cleared", () => {
-        console.log("[DEBUG] selection:cleared");
         setSelected(null);
       });
       canvas.on("mouse:down", (e: any) => {
-        console.log("[DEBUG] mouse:down", e);
         if (e && e.target) setSelected(e.target);
       });
-    } else {
-      if (!fabric) console.log("[DEBUG] fabric is not loaded");
-      if (fabricRef.current) console.log("[DEBUG] fabricRef.current already exists");
+      // 支持鼠标滚轮缩放
+      canvas.on("mouse:wheel", function(opt: any) {
+        let delta = opt.e.deltaY;
+        let zoom = canvas.getZoom();
+        zoom *= 0.999 ** delta;
+        zoom = Math.max(0.2, Math.min(zoom, 3));
+        setCanvasZoom(zoom);
+        canvas.setZoom(zoom);
+        opt.e.preventDefault();
+        opt.e.stopPropagation();
+      });
     }
-  }, []);
+    // 画布分辨率变化时重设
+    if (fabricRef.current) {
+      fabricRef.current.setWidth(canvasSize.w);
+      fabricRef.current.setHeight(canvasSize.h);
+      fabricRef.current.setZoom(canvasZoom);
+      fabricRef.current.requestRenderAll();
+    }
+    // eslint-disable-next-line
+  }, [canvasSize.w, canvasSize.h, canvasZoom]);
 
   // 声音弹窗相关
   const fetchVoices = async () => {
@@ -197,13 +257,12 @@ const EditorPage: React.FC<{
   };
 
   const addText = () => {
-    console.log("[DEBUG] addText click");
     if (!fabricRef.current || !fabric.Textbox) {
-      console.log("[DEBUG] addText: fabricRef.current or fabric.Textbox missing");
+      console.log("[DEBUG] addText: fabricRef.current 或 fabric.Textbox 缺失", { fabricRef: fabricRef.current, fabricTextbox: fabric.Textbox });
       return;
     }
     const textbox = new fabric.Textbox("双击编辑文字", {
-      left: 200,
+      left: 100,
       top: 100,
       fontSize: 36,
       fill: "#222222",
@@ -213,22 +272,20 @@ const EditorPage: React.FC<{
     fabricRef.current.setActiveObject(textbox);
     fabricRef.current.requestRenderAll();
     setSelected(textbox);
+    // 详细调试信息
+    setTimeout(() => {
+      console.log("[DEBUG] addText: 画布对象列表", fabricRef.current.getObjects());
+      console.log("[DEBUG] addText: textbox", textbox, "text", textbox.text);
+    }, 100);
   };
 
   const addImage = () => {
-    console.log("[DEBUG] addImage click");
-    if (!fabricRef.current || !fabric.Image) {
-      console.log("[DEBUG] addImage: fabricRef.current or fabric.Image missing");
-      return;
-    }
+    if (!fabricRef.current || !fabric.Image) return;
     const url = window.prompt("请输入图片URL");
     if (!url) return;
     fabric.Image.fromURL(url, (img: any) => {
-      if (!img) {
-        console.log("[DEBUG] addImage: 图片加载失败", url);
-        return;
-      }
-      img.set({ left: 100, top: 300, scaleX: 0.5, scaleY: 0.5 });
+      if (!img) return;
+      img.set({ left: 100, top: 100, scaleX: 0.5, scaleY: 0.5 });
       fabricRef.current!.add(img);
       fabricRef.current!.setActiveObject(img);
       fabricRef.current!.requestRenderAll();
@@ -236,22 +293,23 @@ const EditorPage: React.FC<{
     });
   };
 
-  // 姿势点击
+  // 姿势点击：插入数字人图片到画布
   const handlePostureClick = (posture: PostureInfo) => {
-    console.log("[DEBUG] handlePostureClick", posture);
     setSelectedPosture(posture);
     if (!fabricRef.current || !fabric.Image) {
-      console.log("[DEBUG] handlePostureClick: fabricRef.current or fabric.Image missing");
+      console.log("[DEBUG] handlePostureClick: fabricRef.current 或 fabric.Image 缺失", { fabricRef: fabricRef.current, fabricImage: fabric.Image });
       return;
     }
     // 查找当前画布 postureTag=true 的对象
     const canvas = fabricRef.current;
     const postureImg = canvas.getObjects("image").find((obj: any) => obj.postureTag === true);
+    console.log("[DEBUG] 当前姿势 posture:", posture);
+    console.log("[DEBUG] 当前画布 postureImg:", postureImg);
     if (postureImg) {
       // 替换图片内容，保留原有位置和缩放
       fabric.Image.fromURL(posture.previewPicture, (newImg: any) => {
         if (!newImg) {
-          console.log("[DEBUG] handlePostureClick: 新姿势图片加载失败", posture.previewPicture);
+          console.log("[DEBUG] 替换姿势图片失败，图片未加载", posture.previewPicture);
           return;
         }
         newImg.set({
@@ -266,20 +324,34 @@ const EditorPage: React.FC<{
         canvas.setActiveObject(newImg);
         canvas.requestRenderAll();
         setSelected(newImg);
+        console.log("[DEBUG] 已替换姿势图片", newImg);
+        setTimeout(() => {
+          console.log("[DEBUG] handlePostureClick: 画布对象列表", canvas.getObjects());
+          if (newImg._element) {
+            console.log("[DEBUG] handlePostureClick: newImg._element", newImg._element, "img.src", newImg._element.src);
+          }
+        }, 100);
       });
     } else {
       // 没有姿势图片则直接插入
       fabric.Image.fromURL(posture.previewPicture, (img: any) => {
         if (!img) {
-          console.log("[DEBUG] handlePostureClick: 新插入姿势图片加载失败", posture.previewPicture);
+          console.log("[DEBUG] 插入姿势图片失败，图片未加载", posture.previewPicture);
           return;
         }
-        img.set({ left: 120, top: 120, scaleX: 0.5, scaleY: 0.5 });
+        img.set({ left: canvasSize.w / 2 - 60, top: canvasSize.h / 2 - 120, scaleX: 0.5, scaleY: 0.5 });
         img.postureTag = true;
         canvas.add(img);
         canvas.setActiveObject(img);
         canvas.requestRenderAll();
         setSelected(img);
+        console.log("[DEBUG] 已插入姿势图片", img);
+        setTimeout(() => {
+          console.log("[DEBUG] handlePostureClick: 画布对象列表", canvas.getObjects());
+          if (img._element) {
+            console.log("[DEBUG] handlePostureClick: img._element", img._element, "img.src", img._element.src);
+          }
+        }, 100);
       });
     }
   };
@@ -321,10 +393,89 @@ const EditorPage: React.FC<{
             {materialTab === "scene" && (
               <div>
                 <h3>场景</h3>
-                <ul id="scene-list">
-                  <li className="scene-item active" data-index="0">1</li>
-                </ul>
-                <button id="add-scene-btn">添加场景</button>
+                {/* 只有选中“场景”Tab时才显示场景列表，否则隐藏 */}
+                {materialTab === "scene" && (
+                  <ul id="scene-list" style={{ padding: 0, margin: 0 }}>
+                    {scenes.map((scene, idx) => (
+                      <li
+                        key={scene.id}
+                        className={`scene-item${idx === currentSceneIdx ? " active" : ""}`}
+                        data-index={idx}
+                        style={{
+                          listStyle: "none",
+                          marginBottom: 8,
+                          background: idx === currentSceneIdx ? "#e0e7ff" : "transparent",
+                          borderRadius: 6,
+                          padding: "4px 8px",
+                          cursor: "pointer"
+                        }}
+                        onClick={() => setCurrentSceneIdx(idx)}
+                      >
+                        <div style={{ fontWeight: 600 }}>{scene.videoName || `场景${idx + 1}`}</div>
+                        <div style={{ fontSize: 12, color: "#888" }}>{scene.canvasRatio} {scene.canvasSize.w}x{scene.canvasSize.h}</div>
+                        <div style={{ fontSize: 12, color: "#888", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {scene.voiceScript ? scene.voiceScript.slice(0, 16) + (scene.voiceScript.length > 16 ? "..." : "") : "无口播文本"}
+                        </div>
+                        {/* 编辑属性 */}
+                        {idx === currentSceneIdx && (
+                          <div>
+                            <div style={{ marginTop: 4 }}>
+                              <label style={{ fontSize: 12 }}>分辨率：</label>
+                              <select
+                                value={scene.canvasRatio}
+                                onChange={e => {
+                                  const val = e.target.value as "16:9" | "9:16";
+                                  const newScenes = [...scenes];
+                                  newScenes[idx].canvasRatio = val;
+                                  newScenes[idx].canvasSize = val === "16:9" ? { w: 1920, h: 1080 } : { w: 1080, h: 1920 };
+                                  setScenes(newScenes);
+                                }}
+                                style={{ fontSize: 12, borderRadius: 4, padding: "2px 8px", marginRight: 4 }}
+                              >
+                                <option value="16:9">16:9</option>
+                                <option value="9:16">9:16</option>
+                              </select>
+                              <label style={{ fontSize: 12 }}>视频名：</label>
+                              <input
+                                type="text"
+                                value={scene.videoName}
+                                onChange={e => {
+                                  const newScenes = [...scenes];
+                                  newScenes[idx].videoName = e.target.value;
+                                  setScenes(newScenes);
+                                }}
+                                style={{ width: 80, fontSize: 12, borderRadius: 4, border: "1px solid #ccc", padding: "2px 4px", marginRight: 4 }}
+                                placeholder="视频名称"
+                              />
+                            </div>
+                            {/* 添加场景按钮仅在当前场景被选中时显示 */}
+                            <button
+                              id="add-scene-btn"
+                              onClick={e => {
+                                e.stopPropagation();
+                                const newId = Math.random().toString(36).slice(2, 10) + Date.now();
+                                const defaultName = avatar ? `${avatar.name || "视频"}-${newId}` : `视频-${newId}`;
+                                setScenes([
+                                  ...scenes,
+                                  {
+                                    id: newId,
+                                    videoName: defaultName,
+                                    voiceScript: "",
+                                    canvasRatio: "16:9",
+                                    canvasSize: { w: 1920, h: 1080 },
+                                    elements: null
+                                  }
+                                ]);
+                                setCurrentSceneIdx(scenes.length);
+                              }}
+                              style={{ marginTop: 8, padding: "4px 12px", borderRadius: 5, border: "1px solid #bbb", background: "#fff", cursor: "pointer" }}
+                            >添加场景</button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
             {materialTab === "image" && (
@@ -409,17 +560,109 @@ const EditorPage: React.FC<{
           </div>
         </aside>
         {/* 中间：画布编辑区 */}
-        <main className="center">
-          <div id="canvas-container">
-            <canvas ref={canvasRef} width={540} height={960} id="editor-canvas" />
+        <main className="center" style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", width: "100%" }}>
+          <div id="canvas-container" style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            {/* 分辨率选择和画布 */}
+            {/* 分辨率选择和画布 */}
+            <div style={{ width: canvasSize.w, display: "flex", alignItems: "center", marginBottom: 8 }} />
+            <div style={{
+              width: 720,
+              height: 405,
+              background: "#f5f5f5",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 8,
+              boxShadow: "0 1px 6px #0001",
+              marginBottom: 16,
+              position: "relative",
+              overflow: "hidden"
+            }}>
+              {/* debug: 显示画布尺寸和缩放 */}
+              <div style={{ position: "absolute", left: 10, top: 10, zIndex: 20, background: "#fff8", borderRadius: 4, fontSize: 12, padding: "2px 8px" }}>
+                <span>画布: {canvasSize.w}×{canvasSize.h} | 缩放: {canvasZoom.toFixed(2)}x</span>
+              </div>
+              <div style={{
+                width: canvasSize.w * canvasZoom,
+                height: canvasSize.h * canvasZoom,
+                transform: `scale(${1 / canvasZoom})`,
+                transformOrigin: "top left",
+                outline: "2px dashed #e11d48"
+              }}>
+                <canvas
+                  ref={canvasRef}
+                  width={canvasSize.w}
+                  height={canvasSize.h}
+                  id="editor-canvas"
+                  style={{ background: "#fff", borderRadius: 8, maxWidth: "100%", maxHeight: "100%" }}
+                />
+                {/* debug: 画布上所有对象的边框和坐标 */}
+                {fabricRef.current && fabricRef.current.getObjects().map((obj: any, i: number) => {
+                  // 只显示 image/textbox
+                  if (!obj) return null;
+                  const left = obj.left ?? 0;
+                  const top = obj.top ?? 0;
+                  const w = (obj.width || 0) * (obj.scaleX || 1);
+                  const h = (obj.height || 0) * (obj.scaleY || 1);
+                  // debug: 检查图片/文字实际可见性
+                  let debugMsg = "";
+                  if (obj.type === "image" && obj._element) {
+                    debugMsg = `img.src: ${obj._element.src?.slice(0, 60)}`;
+                  }
+                  if (obj.type === "textbox" && obj.text) {
+                    debugMsg = `text: ${obj.text}`;
+                  }
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        position: "absolute",
+                        left: left,
+                        top: top,
+                        width: w,
+                        height: h,
+                        border: obj.type === "image" ? "2px solid #22c55e" : "2px solid #2563eb",
+                        pointerEvents: "none",
+                        fontSize: 10,
+                        color: "#e11d48",
+                        background: "#fff8",
+                        zIndex: 100
+                      }}
+                    >
+                      {obj.type}{obj.postureTag ? "(姿势)" : ""}
+                      <br />
+                      {Math.round(left)},{Math.round(top)} {Math.round(w)}×{Math.round(h)}
+                      <br />
+                      {debugMsg}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* 缩放控制按钮 */}
+              <div style={{ position: "absolute", right: 10, top: 10, zIndex: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                <button onClick={() => setCanvasZoom(z => Math.min(z + 0.1, 3))} style={{ width: 32, height: 32, borderRadius: 16, fontSize: 18, border: "1px solid #bbb", background: "#fff", cursor: "pointer" }}>+</button>
+                <button onClick={() => setCanvasZoom(z => Math.max(z - 0.1, 0.2))} style={{ width: 32, height: 32, borderRadius: 16, fontSize: 18, border: "1px solid #bbb", background: "#fff", cursor: "pointer" }}>-</button>
+                <button onClick={centerActiveObject} style={{ width: 32, height: 32, borderRadius: 16, fontSize: 16, border: "1px solid #bbb", background: "#fff", cursor: "pointer" }}>居</button>
+              </div>
+              {/* debug: 显示画布上所有对象类型和数量 */}
+              <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 20, background: "#fff8", borderRadius: 4, fontSize: 12, padding: "2px 8px" }}>
+                {fabricRef.current && (
+                  <span>
+                    {fabricRef.current.getObjects().map((obj: any, i: number) =>
+                      <span key={i}>{obj.type}{obj.postureTag ? "(姿势)" : ""}{i < fabricRef.current.getObjects().length - 1 ? ", " : ""}</span>
+                    )}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </main>
         {/* 右侧：仅保留姿势和属性 */}
-        <aside className="sidebar right">
+        <aside className="sidebar right" style={{ marginLeft: 32 }}>
           <div style={{ margin: "18px 0" }}>
             <h3>姿势选择</h3>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              {avatar.postureInfos && avatar.postureInfos.length > 0 ? (
+              {avatar && avatar.postureInfos && avatar.postureInfos.length > 0 ? (
                 avatar.postureInfos.map(p => (
                   <div key={p.bizId} style={{ cursor: "pointer", textAlign: "center" }} onClick={() => handlePostureClick(p)}>
                     <img src={p.previewPicture} alt={p.name} style={{ width: 60, height: 60, borderRadius: 8, objectFit: "cover", border: selectedPosture?.bizId === p.bizId ? "2px solid #2563eb" : "1px solid #eee" }} />
@@ -570,50 +813,81 @@ const EditorPage: React.FC<{
         </div>
       )}
       {/* 底部操作栏 */}
-      <div className="bottom-panel" style={{ display: "flex", alignItems: "center", gap: 18, padding: "12px 24px", borderTop: "1px solid #eee", background: "#fafbfc" }}>
-        <button
-          onClick={() => {
-            // 暂存草稿
-            if (!fabricRef.current) return;
-            const draft = {
-              taskId,
-              elements: fabricRef.current.toJSON(),
-              time: Date.now(),
-              name: "草稿-" + new Date().toLocaleString(),
-              avatar: avatar // 保存avatar信息
-            };
-            const drafts = JSON.parse(localStorage.getItem("drafts") || "[]");
-            const idx = drafts.findIndex((d: any) => d.taskId === taskId);
-            if (idx >= 0) drafts[idx] = draft;
-            else drafts.push(draft);
-            localStorage.setItem("drafts", JSON.stringify(drafts));
-            alert("草稿已保存");
-          }}
-          style={{ padding: "8px 22px", background: "#64748b", color: "#fff", border: "none", borderRadius: 5, fontSize: 16, cursor: "pointer" }}
-        >暂存草稿</button>
-        <button
-          onClick={() => {
-            // 预览
-            if (!fabricRef.current) return;
-            alert("预览功能待完善：此处可实现素材和声音按时间轴播放，数字人静止。");
-          }}
-          style={{ padding: "8px 22px", background: "#22c55e", color: "#fff", border: "none", borderRadius: 5, fontSize: 16, cursor: "pointer" }}
-        >预览</button>
-        <button
-          onClick={async () => {
-            // 最终生成
-            if (!fabricRef.current) return;
-            const json = fabricRef.current.toJSON();
-            // 这里可POST到后端
-            await fetch("/api/generate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ taskId, elements: json })
-            });
-            alert("已提交生成请求");
-          }}
-          style={{ padding: "8px 22px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 5, fontSize: 16, cursor: "pointer" }}
-        >最终生成</button>
+      <div className="bottom-panel" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, padding: "0 24px", borderTop: "1px solid #eee", background: "#fafbfc" }}>
+        {/* 口播文本输入框，放在按钮上方 */}
+        <div style={{ width: "100%", maxWidth: 600, margin: "12px 0 0 0" }}>
+          <label style={{ fontWeight: 600, marginBottom: 4, display: "block" }}>口播文本</label>
+          <textarea
+            value={voiceScript}
+            onChange={e => {
+              const newScenes = [...scenes];
+              newScenes[currentSceneIdx].voiceScript = e.target.value;
+              setScenes(newScenes);
+            }}
+            placeholder="请输入口播文本"
+            style={{
+              width: "100%",
+              minHeight: 48,
+              borderRadius: 6,
+              border: "1px solid #ccc",
+              padding: 8,
+              fontSize: 15,
+              resize: "vertical"
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, width: "100%", maxWidth: 600, margin: "8px 0 12px 0" }}>
+          <button
+            onClick={() => {
+              // 暂存草稿
+              if (!fabricRef.current) return;
+              const draft = {
+                taskId,
+                scenes,
+                currentSceneIdx,
+                time: Date.now(),
+                name: "草稿-" + new Date().toLocaleString(),
+                avatar: avatar
+              };
+              const drafts = JSON.parse(localStorage.getItem("drafts") || "[]");
+              const idx = drafts.findIndex((d: any) => d.taskId === taskId);
+              if (idx >= 0) drafts[idx] = draft;
+              else drafts.push(draft);
+              localStorage.setItem("drafts", JSON.stringify(drafts));
+              alert("草稿已保存");
+            }}
+            style={{ padding: "8px 22px", background: "#64748b", color: "#fff", border: "none", borderRadius: 5, fontSize: 16, cursor: "pointer" }}
+          >暂存草稿</button>
+          <button
+            onClick={() => {
+              // 预览
+              if (!fabricRef.current) return;
+              alert("预览功能待完善：此处可实现素材和声音按时间轴播放，数字人静止。");
+            }}
+            style={{ padding: "8px 22px", background: "#22c55e", color: "#fff", border: "none", borderRadius: 5, fontSize: 16, cursor: "pointer" }}
+          >预览</button>
+          <button
+            onClick={async () => {
+              // 最终生成
+              if (!fabricRef.current) return;
+              const json = fabricRef.current.toJSON();
+              await fetch("/api/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  taskId,
+                  elements: json,
+                  voiceScript,
+                  videoName,
+                  canvasRatio,
+                  canvasSize
+                })
+              });
+              alert("已提交生成请求");
+            }}
+            style={{ padding: "8px 22px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 5, fontSize: 16, cursor: "pointer" }}
+          >最终生成</button>
+        </div>
       </div>
       {/* 隐藏文件输入，后续可用Ref控制 */}
       <input type="file" accept="image/*" style={{ display: "none" }} />

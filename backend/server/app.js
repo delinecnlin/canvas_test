@@ -205,10 +205,21 @@ app.get('/api/xiaoice/voices', async (req, res) => {
 app.post('/api/generate', async (req, res) => {
   try {
     console.log('[API] /api/generate 收到请求:', req.body);
-    // 这里可集成实际视频生成逻辑
-    res.json({ success: true, message: '已收到生成请求', data: req.body });
+    // 转发到小冰视频生成接口
+    const result = await axios.post(
+      'https://openapi.xiaoice.com/vh/openapi/video/task/v2/submit',
+      req.body,
+      {
+        headers: {
+          'subscription-key': XIAOBING_API_KEY ? XIAOBING_API_KEY.trim() : '',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    res.json({ success: true, message: '小冰接口已响应', data: result.data });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    console.error('[API] /api/generate 错误:', e && e.response ? e.response.data : e);
+    res.status(500).json({ success: false, error: e.message, detail: e && e.response ? e.response.data : undefined });
   }
 });
 
