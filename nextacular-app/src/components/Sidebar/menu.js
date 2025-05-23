@@ -1,7 +1,7 @@
 import Item from './item';
 import { useTranslation } from "react-i18next";
 
-const Menu = ({ data, isLoading, showMenu }) => {
+const Menu = ({ data, isLoading = false, showMenu = false }) => {
   const { t } = useTranslation();
   return showMenu ? (
     <div className="space-y-2">
@@ -13,11 +13,6 @@ const Menu = ({ data, isLoading, showMenu }) => {
       </ul>
     </div>
   ) : null;
-};
-
-Menu.defaultProps = {
-  isLoading: false,
-  showMenu: false,
 };
 
 export default Menu;

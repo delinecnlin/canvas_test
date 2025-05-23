@@ -65,7 +65,9 @@ const App = ({ Component, pageProps }) => {
         <ThemeProvider attribute="class">
           <WorkspaceProvider>
             {progress && <TopBarProgress />}
-            <Component {...pageProps} />
+            {Component.getLayout
+              ? Component.getLayout(<Component {...pageProps} />)
+              : <Component {...pageProps} />}
           </WorkspaceProvider>
         </ThemeProvider>
       </SWRConfig>
