@@ -1,47 +1,41 @@
-# 通用
-.DS_Store
-*.log
-*.tmp
+# Node/Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
 
-# 后端 Node.js
-backend/server/node_modules/
-backend/server/.env
-backend/server/.env.local
-backend/server/.env.*.local
+# Env & config
+.env
+.env.*
+!.env.example
 
-# 前端常见
-frontend/node_modules/
-frontend/dist/
-frontend/build/
-frontend/.env
-frontend/.env.local
-frontend/.env.*.local
-
-# React SPA（Vite/CRA/Next等）常见忽略
-frontend/react-spa/node_modules/
-frontend/react-spa/dist/
-frontend/react-spa/build/
-frontend/react-spa/.env
-frontend/react-spa/.env.local
-frontend/react-spa/.env.*.local
-
-# VSCode
-.vscode/
-
-# 其他
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE/editor
+.vscode/
 .idea/
 *.swp
 
-# 忽略 backup 目录下所有常见依赖和敏感文件
-backup/**/node_modules/
-backup/**/.env
-backup/**/.env.local
-backup/**/.env.*.local
-backup/**/package-lock.json
-backup/**/yarn.lock
-backup/**/dist/
-backup/**/build/
+# Backup & migration
+backup/
+frontend/
+backend/
+
+# Misc
+*.local
+*.log
+
+# Optional: lock files (if using only one package manager)
+# yarn.lock
+# package-lock.json
+# pnpm-lock.yaml
